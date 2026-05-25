@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/yaelsn/Thesis/tsfm_feature_selection_framework/run_experiment.py", line 305, in <module>
+    main(args.config)
+  File "/home/yaelsn/Thesis/tsfm_feature_selection_framework/run_experiment.py", line 125, in main
+    data = load_metr_la(cfg.dataset.zip_path)
+  File "/home/yaelsn/Thesis/tsfm_feature_selection_framework/src/data/real_traffic.py", line 220, in load_metr_la
+    raise FileNotFoundError(f"Zip not found: {zip_path}")
+FileNotFoundError: Zip not found: /home/yaelsn/Thesis/METR-LA.zip

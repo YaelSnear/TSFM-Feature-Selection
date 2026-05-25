@@ -1,0 +1,26 @@
+experiment:
+  name: metr_la_lag_2h
+
+dataset:
+  zip_path: /home/yaelsn/Thesis/METR-LA.zip
+  target_sensor_idx: 0        # df column index of the target sensor
+  context_length: 144         # 12 hours at 5-min resolution
+  horizon: 12                 # 1 hour ahead
+  stride: 1
+  max_windows: 1000
+  n_relevant: 5               # top-5 by adjacency weight
+  n_distractor: 10            # randomly sampled from zero-adjacency pool
+  distractor_seed: 42
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [6, 8, 10]
+
+scoring:
+  max_lag: 24                 # 2 hours = 24 x 5-min patches
+  dtw_gamma: 1.0
+
+evaluation:
+  top_k: 5
+  horizon: 12
+  test_frac: 0.2

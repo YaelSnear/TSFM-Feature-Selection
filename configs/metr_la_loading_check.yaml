@@ -1,0 +1,6 @@
+data:
+  zip_path: data/raw/METR-LA.zip
+  n_rows: 288          # first 24 hours (288 × 5-min steps)
+
+output:
+  dir: outputs/metr_la_loading_check

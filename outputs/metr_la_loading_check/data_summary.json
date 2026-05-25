@@ -1,0 +1,30 @@
+{
+  "zip_path": "data/raw/METR-LA.zip",
+  "zip_contents": [
+    "METR-LA.h5",
+    "adj_METR-LA.pkl"
+  ],
+  "detected_data_file": "METR-LA.h5",
+  "detected_adj_file": "adj_METR-LA.pkl",
+  "shape": [
+    288,
+    207
+  ],
+  "n_timestamps": 288,
+  "n_sensors": 207,
+  "first_timestamp": "2012-03-01 00:00:00",
+  "last_timestamp": "2012-03-01 23:55:00",
+  "inferred_freq": "5min",
+  "nan_count": 0,
+  "nan_fraction": 0.0,
+  "data_min": 0.0,
+  "data_max": 70.0,
+  "data_mean": 54.3797,
+  "data_std": 18.2497,
+  "zero_fraction": 0.050859,
+  "adj_matrix_shape": [
+    207,
+    207
+  ],
+  "adj_nonzero_entries": 1722
+}

@@ -1,0 +1,16 @@
+extraction:
+  model_id: amazon/chronos-2
+  device: null        # null = auto-detect (cuda if available, else cpu)
+  layers: [2, 7, 9]
+  pooling: mean
+
+series:
+  T: 128
+  seed: 0
+
+windows:
+  window_length: 64
+  stride: 32
+
+output:
+  dir: outputs/chronos_extraction_smoke

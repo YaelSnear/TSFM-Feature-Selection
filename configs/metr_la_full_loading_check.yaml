@@ -1,0 +1,6 @@
+data:
+  zip_path: data/raw/METR-LA.zip
+  n_rows: null             # load all 34272 time steps
+
+output:
+  dir: outputs/metr_la_full_loading_check

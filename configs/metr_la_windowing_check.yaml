@@ -1,0 +1,13 @@
+data:
+  zip_path: data/raw/METR-LA.zip
+  n_rows: null
+
+windowing:
+  target_sensor: null    # null = first sensor in the dataset
+  context_length: 288    # 24 hours of 5-min steps
+  horizon: 12            # 1 hour ahead
+  stride: 12             # advance by 1 hour between windows
+  max_windows: 5
+
+output:
+  dir: outputs/metr_la_windowing_check

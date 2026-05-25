@@ -1,0 +1,24 @@
+{
+  "full_load_shape": [
+    34272,
+    207
+  ],
+  "target_sensor": "773869",
+  "context_length": 288,
+  "horizon": 12,
+  "stride": 12,
+  "max_windows": 5,
+  "X_context_shape": [
+    5,
+    288,
+    207
+  ],
+  "y_target_shape": [
+    5,
+    12
+  ],
+  "n_valid_windows": 2832,
+  "n_windows_returned": 5,
+  "first_forecast_ts": "2012-03-02 00:00:00",
+  "last_forecast_ts": "2012-03-02 04:00:00"
+}
