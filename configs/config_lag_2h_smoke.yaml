@@ -1,0 +1,26 @@
+experiment:
+  name: metr_la_lag_2h_smoke
+
+dataset:
+  zip_path: /home/yaelsn/Thesis/tsfm_feature_selection_framework/data/raw/METR-LA.zip
+  target_sensor_idx: 0
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 50
+  n_relevant: 5
+  n_distractor: 45
+  distractor_seed: 42
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [6, 8, 10]
+
+scoring:
+  max_lag: 24
+  dtw_gamma: 1.0
+
+evaluation:
+  top_ks: [5, 10]
+  horizon: 12
+  test_frac: 0.2

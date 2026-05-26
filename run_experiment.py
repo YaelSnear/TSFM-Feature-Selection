@@ -5,17 +5,21 @@ Usage:
 
 Modules executed sequentially:
     0  Init & safety checks (GPU, output directory)
-    1  Data setup (METR-LA, sensor selection, windowing)
+    1  Data setup (METR-LA, sensor selection, windowing, geo adjacency scores)
     2  Latent extraction (Chronos-2, cached to disk, all requested layers)
-    3  Representation scoring (Mean_Pooling, Lagged_CKA, Soft_DTW × layers × conditions)
-    4  Downstream evaluation (Ridge Regression on raw traffic, + 2 baselines)
-    5  Reporting (results.csv, 4 publication charts)
+    3  Representation scoring (Mean_Pooling, Lagged_CKA, Soft_DTW × layers × conditions
+                               + Lasso and RF supervised baselines, train-only)
+    4  Downstream evaluation (LightGBM on raw traffic, all K in top_ks,
+                               Univariate/Geographic/Lasso/RF/Pearson baselines + scored methods)
+    5  Reporting (results.csv, selected_sensors.json, 4 publication charts)
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +34,7 @@ from src.data.real_traffic import (
     select_sensors,
 )
 from src.evaluation.downstream import (
+    compute_ipg_ground_truth,
     evaluate_geographic_baseline,
     evaluate_method,
     evaluate_univariate_baseline,
@@ -37,13 +42,20 @@ from src.evaluation.downstream import (
 from src.extraction.chronos_hooks import ChronosEmbeddingExtractor
 from src.preprocessing.whitening import whiten_embeddings
 from src.reporting.plots import (
-    plot_layer_comparison,
-    plot_mrr_bar,
-    plot_precision_vs_rmse,
-    plot_rmse_bar,
+    plot_layer_ablation,
+    plot_overlap_with_geo,
+    plot_rmse_vs_k,
+    plot_sota_comparison_bar,
 )
 from src.reporting.saver import save_config
-from src.scoring.tsfm_scorers import lagged_cka, mean_pooling_cka, soft_dtw_score
+from src.scoring.tsfm_scorers import (
+    lagged_cka,
+    lasso_fs_scorer,
+    mean_pooling_cka,
+    pearson_fs_scorer,
+    rf_fs_scorer,
+    soft_dtw_score,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -130,9 +142,9 @@ def main(config_path: str) -> None:
     sensors = select_sensors(
         data,
         target_sensor,
-        n_relevant  = cfg.dataset.n_relevant,
+        n_relevant   = cfg.dataset.n_relevant,
         n_distractor = cfg.dataset.n_distractor,
-        seed        = cfg.dataset.distractor_seed,
+        seed         = cfg.dataset.distractor_seed,
     )
     proxy_relevant_cols = sensors["proxy_relevant"]
     distractor_cols     = sensors["distractor"]
@@ -140,6 +152,19 @@ def main(config_path: str) -> None:
 
     print(f"  proxy_relevant df cols : {proxy_relevant_cols}")
     print(f"  distractor     df cols : {distractor_cols}")
+
+    # Build adjacency scores for all candidate sensors so the geographic
+    # baseline can rank them for any K, not just the fixed n_relevant=5.
+    target_adj_idx = data.sensor_id_to_idx[target_sensor]
+    geo_adj_scores: dict[int, float] = {}
+    for col in all_sensor_cols:
+        sensor_name = data.df.columns[col]
+        adj_idx = data.sensor_id_to_idx.get(sensor_name)
+        geo_adj_scores[col] = (
+            float(data.adj_matrix[target_adj_idx, adj_idx])
+            if adj_idx is not None
+            else 0.0
+        )
 
     windows: ForecastWindows = make_forecast_windows(
         data.df,
@@ -160,6 +185,26 @@ def main(config_path: str) -> None:
         col: windows.X_context[:, :, col]
         for col in all_sensor_cols
     }
+
+    # IPG ground truth — computed strictly on the train split, no test leakage.
+    # Replaces the adjacency-based proxy_relevant_cols for Precision@K / MRR.
+    print("  Computing IPG ground truth (train-only) …")
+    ipg_relevant_cols = compute_ipg_ground_truth(
+        Y_series, raw_windows_X, y_target,
+        all_sensor_cols, cfg.evaluation.test_frac,
+        n_top=cfg.dataset.n_relevant,
+    )
+    print(f"  IPG top-{cfg.dataset.n_relevant} sensors: {ipg_relevant_cols}")
+
+    # Pre-flight: report train/test split sizes to confirm statistical validity.
+    _n_train = int(N * (1.0 - cfg.evaluation.test_frac))
+    _gap     = 144
+    _n_test  = N - (_n_train + _gap)
+    if _n_test < 0:
+        _n_test = N - _n_train   # fallback (gap exceeds remaining rows)
+    print(f"  N_total={N}  N_train={_n_train}  gap={_gap}  N_test={_n_test}")
+    if _n_test < 400:
+        print(f"  [WARNING] N_test={_n_test} < 400 — results may lack statistical power.")
 
     # -----------------------------------------------------------------------
     # Module 2 — Latent extraction (Chronos-2, all layers, cached)
@@ -191,18 +236,28 @@ def main(config_path: str) -> None:
 
     # -----------------------------------------------------------------------
     # Module 3 — Representation scoring (layer × condition × method)
+    #            + supervised baselines (Lasso, RF) fit on train split only
     # -----------------------------------------------------------------------
     print("\n[Module 3] Scoring …")
-    max_lag = cfg.scoring.max_lag
+    max_lag   = cfg.scoring.max_lag
+    test_frac = cfg.evaluation.test_frac
 
     scoring_results: list[dict] = []   # [{layer, method, condition, feat_scores}]
 
     for layer in layers:
-        Y_emb = Y_embs_by_layer[layer]
+        Y_emb  = Y_embs_by_layer[layer]
         X_embs = X_embs_by_layer[layer]
 
+        # Pre-compute whitened embeddings once per (layer, sensor) to avoid
+        # redundant ZCA SVD calls inside the method loop (was 3× per sensor).
+        print(f"  Pre-whitening embeddings for layer {layer} …")
+        Y_emb_w: np.ndarray = whiten_embeddings(Y_emb)
+        X_embs_w: dict[int, np.ndarray] = {
+            col: whiten_embeddings(X_embs[col]) for col in all_sensor_cols
+        }
+
         for condition in ["raw", "whitened"]:
-            Y_e = whiten_embeddings(Y_emb) if condition == "whitened" else Y_emb
+            Y_e = Y_emb_w if condition == "whitened" else Y_emb
 
             method_list: list[tuple[str, object]] = [
                 ("Mean_Pooling",        None),
@@ -215,11 +270,8 @@ def main(config_path: str) -> None:
                 feat_scores: dict[int, float] = {}
 
                 for col in all_sensor_cols:
-                    X_e = (
-                        whiten_embeddings(X_embs[col])
-                        if condition == "whitened"
-                        else X_embs[col]
-                    )
+                    X_e = X_embs_w[col] if condition == "whitened" else X_embs[col]
+
                     if method_name == "Mean_Pooling":
                         score = mean_pooling_cka(X_e, Y_e)
                     elif method_name == "Lagged_CKA":
@@ -236,45 +288,105 @@ def main(config_path: str) -> None:
                     "feat_scores": feat_scores,
                 })
 
+    # Supervised baselines: fit once on the train portion of the raw windows.
+    print("  Lasso supervised scorer (train-only) …")
+    lasso_scores = lasso_fs_scorer(raw_windows_X, y_target, all_sensor_cols, test_frac)
+    scoring_results.append({
+        "layer":       "N/A",
+        "method":      "Lasso",
+        "condition":   "N/A",
+        "feat_scores": lasso_scores,
+    })
+
+    print("  RF supervised scorer (train-only) …")
+    rf_scores = rf_fs_scorer(raw_windows_X, y_target, all_sensor_cols, test_frac)
+    scoring_results.append({
+        "layer":       "N/A",
+        "method":      "RF",
+        "condition":   "N/A",
+        "feat_scores": rf_scores,
+    })
+
+    print("  Pearson statistical baseline (train-only) …")
+    pearson_scores = pearson_fs_scorer(raw_windows_X, Y_series, all_sensor_cols, test_frac)
+    scoring_results.append({
+        "layer":       "N/A",
+        "method":      "Pearson",
+        "condition":   "N/A",
+        "feat_scores": pearson_scores,
+    })
+
     # -----------------------------------------------------------------------
     # Module 4 — Downstream forecasting (raw traffic Ridge Regression)
+    #            Loops over all K values in cfg.evaluation.top_ks.
+    #            Records which sensors each method selected at each K.
     # -----------------------------------------------------------------------
     print("\n[Module 4] Downstream evaluation …")
-    top_k     = cfg.evaluation.top_k
-    test_frac = cfg.evaluation.test_frac
+    top_ks = cfg.evaluation.top_ks   # list[int], e.g. [5, 10, 20, 30]
 
     results_rows: list[dict] = []
 
-    # --- Baselines (condition/layer-agnostic, evaluated once) ---
-    print("  Univariate baseline …")
-    uni_metrics = evaluate_univariate_baseline(Y_series, y_target, test_frac)
-    results_rows.append({"method": "Univariate", "condition": "N/A", "layer": "N/A", **uni_metrics})
+    # {str(k): {method_key: [col_idx, ...]}} — dumped to selected_sensors.json
+    selected_sensors_map: dict[str, dict[str, list[int]]] = {
+        str(k): {} for k in top_ks
+    }
 
-    print("  Geographic baseline …")
-    geo_metrics = evaluate_geographic_baseline(
-        Y_series, raw_windows_X, y_target, proxy_relevant_cols, test_frac
-    )
-    results_rows.append({"method": "Geographic", "condition": "N/A", "layer": "N/A", **geo_metrics})
+    for k in top_ks:
+        print(f"\n  [k={k}]")
 
-    # --- Scored methods ---
-    for sr in scoring_results:
-        method      = sr["method"]
-        condition   = sr["condition"]
-        layer       = sr["layer"]
-        feat_scores = sr["feat_scores"]
-        print(f"  layer={layer} / {method} / {condition} …")
+        # --- Univariate baseline (no sensors selected beyond Y) ---
+        print("    Univariate baseline …")
+        uni_metrics, uni_sel = evaluate_univariate_baseline(Y_series, y_target, test_frac)
+        results_rows.append({
+            "k": k, "method": "Univariate", "condition": "N/A", "layer": "N/A",
+            **uni_metrics,
+        })
+        selected_sensors_map[str(k)]["Univariate"] = uni_sel
 
-        metrics = evaluate_method(
-            feat_scores            = feat_scores,
-            Y_series               = Y_series,
-            raw_windows_X          = raw_windows_X,
-            y_target               = y_target,
-            all_sensor_df_cols     = all_sensor_cols,
-            proxy_relevant_df_cols = proxy_relevant_cols,
-            top_k                  = top_k,
-            test_frac              = test_frac,
+        # --- Geographic baseline (rank all candidates by adj weight) ---
+        print("    Geographic baseline …")
+        geo_metrics, geo_sel = evaluate_geographic_baseline(
+            Y_series, raw_windows_X, y_target,
+            all_sensor_cols, ipg_relevant_cols,
+            geo_adj_scores, k, test_frac,
         )
-        results_rows.append({"method": method, "condition": condition, "layer": layer, **metrics})
+        results_rows.append({
+            "k": k, "method": "Geographic", "condition": "N/A", "layer": "N/A",
+            **geo_metrics,
+        })
+        selected_sensors_map[str(k)]["Geographic"] = geo_sel
+
+        # --- All scored methods (TSFM latent + Lasso + RF) ---
+        for sr in scoring_results:
+            method    = sr["method"]
+            condition = sr["condition"]
+            layer     = sr["layer"]
+
+            # Build a stable string key for the selected_sensors_map.
+            # Normalise Soft_DTW_g* → Soft_DTW so the key is gamma-independent
+            # and matches the lookup used in plot_overlap_heatmap.
+            norm_method = re.sub(r"^Soft_DTW_g.*", "Soft_DTW", method)
+            if condition != "N/A":
+                method_key = f"{norm_method}_{condition}_L{layer}"
+            else:
+                method_key = norm_method
+
+            print(f"    layer={layer} / {method} / {condition} …")
+            metrics, sel = evaluate_method(
+                feat_scores            = sr["feat_scores"],
+                Y_series               = Y_series,
+                raw_windows_X          = raw_windows_X,
+                y_target               = y_target,
+                all_sensor_df_cols     = all_sensor_cols,
+                proxy_relevant_df_cols = ipg_relevant_cols,
+                top_k                  = k,
+                test_frac              = test_frac,
+            )
+            results_rows.append({
+                "k": k, "method": method, "condition": condition, "layer": layer,
+                **metrics,
+            })
+            selected_sensors_map[str(k)][method_key] = sel
 
     # -----------------------------------------------------------------------
     # Module 5 — Reporting
@@ -285,13 +397,19 @@ def main(config_path: str) -> None:
     results_df.to_csv(csv_path, index=False)
     print(f"  saved {csv_path}")
 
-    plot_rmse_bar(results_df, out_dir, timestamp)
-    plot_mrr_bar(results_df, out_dir, timestamp)
-    plot_layer_comparison(results_df, out_dir)
-    plot_precision_vs_rmse(results_df, out_dir, top_k)
+    # Dump selected sensor sets for offline Jaccard similarity analysis.
+    sensors_path = out_dir / "selected_sensors.json"
+    with open(sensors_path, "w") as f:
+        json.dump(selected_sensors_map, f, indent=2)
+    print(f"  saved {sensors_path}")
+
+    plot_rmse_vs_k(results_df, out_dir)
+    plot_sota_comparison_bar(results_df, out_dir)
+    plot_layer_ablation(results_df, out_dir)
+    plot_overlap_with_geo(selected_sensors_map, results_df, out_dir)
 
     print(f"\nDone. Results in: {out_dir}")
-    display_cols = ["method", "condition", "layer", "RMSE", "MAE", "MAPE", "R2", "MRR"]
+    display_cols = ["k", "method", "condition", "layer", "RMSE", "MAE", "MAPE", "R2", "MRR"]
     display_cols = [c for c in display_cols if c in results_df.columns]
     print(results_df[display_cols].to_string(index=False))
 

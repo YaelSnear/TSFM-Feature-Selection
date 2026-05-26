@@ -7,12 +7,19 @@ Three scoring methods, each accepting Raw or Whitened [N, P, D] embeddings:
                        CKA per window averaged across N windows, take max lag score.
 3. soft_dtw_score    — per-window soft-DTW on [P, D] patch sequences, averaged.
 
-All functions return a single float (higher = more similar / more relevant).
+Two supervised SOTA baselines (fit on train portion only to prevent leakage):
+
+4. lasso_fs_scorer   — LassoCV(cv=3) on flattened raw windows; aggregate |coef| per sensor.
+5. rf_fs_scorer      — RandomForestRegressor on flattened raw windows; aggregate importances.
+
+All functions return a single float score per sensor (higher = more relevant),
+except lasso_fs_scorer and rf_fs_scorer which return {col_idx: score} dicts.
 """
 
 from __future__ import annotations
 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 
 
 # ---------------------------------------------------------------------------
@@ -137,3 +144,151 @@ def soft_dtw_score(X_emb: np.ndarray, Y_emb: np.ndarray, gamma: float) -> float:
         for w in range(X_emb.shape[0])
     ]
     return float(np.mean(scores))
+
+
+# ---------------------------------------------------------------------------
+# Method 4: Lasso supervised feature selector (train-only, no leakage)
+# ---------------------------------------------------------------------------
+
+def lasso_fs_scorer(
+    raw_windows_X: dict[int, np.ndarray],
+    y_target: np.ndarray,
+    all_sensor_df_cols: list[int],
+    test_frac: float,
+    gap: int = 144,
+) -> dict[int, float]:
+    """Score all candidate sensors with LassoCV fit on the train split only.
+
+    Constructs X_train by horizontally concatenating the 144-step context
+    windows for every candidate sensor (column order = all_sensor_df_cols).
+    The target is the mean over the 12 forecast horizons (scalar per window).
+
+    After fitting, each sensor's score is the sum of absolute values of its
+    144 Lasso coefficients, giving a single relevance measure per sensor.
+
+    Args:
+        raw_windows_X      : {col_idx: [N, 144]} raw context windows per sensor
+        y_target           : [N, 12] forecast targets
+        all_sensor_df_cols : ordered list of candidate df column indices
+        test_frac          : fraction of windows reserved for testing
+        gap                : context-overlap gap excluded between train and test
+
+    Returns:
+        {col_idx: aggregated_lasso_score}
+    """
+    from sklearn.linear_model import LassoCV
+
+    N = next(iter(raw_windows_X.values())).shape[0]
+    n_train = int(N * (1.0 - test_frac))
+
+    X_train = np.hstack([raw_windows_X[col][:n_train] for col in all_sensor_df_cols])
+    y_train = y_target[:n_train].mean(axis=1)   # [n_train] — mean over 12 horizons
+
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+
+    model = LassoCV(cv=3, max_iter=5000)
+    model.fit(X_train_s, y_train)
+
+    coef = model.coef_   # [144 * n_sensors]
+    scores: dict[int, float] = {}
+    for i, col in enumerate(all_sensor_df_cols):
+        scores[col] = float(np.sum(np.abs(coef[i * 144 : (i + 1) * 144])))
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Method 5: Random Forest supervised feature selector (train-only, no leakage)
+# ---------------------------------------------------------------------------
+
+def pearson_fs_scorer(
+    raw_windows_X: dict[int, np.ndarray],
+    Y_series: np.ndarray,
+    all_sensor_df_cols: list[int],
+    test_frac: float,
+    gap: int = 144,
+) -> dict[int, float]:
+    """Score all candidate sensors by absolute Pearson correlation with the target
+    on the train split only (no leakage).
+
+    For each training window, computes the absolute Pearson correlation between
+    the 144-step context of the candidate sensor and the target sensor.  The
+    per-sensor score is the mean of these per-window values across all N_train
+    windows, giving a single time-averaged correlation measure.
+
+    Args:
+        raw_windows_X      : {col_idx: [N, 144]} raw context windows per sensor
+        Y_series           : [N, 144] raw context windows for the target
+        all_sensor_df_cols : ordered list of candidate df column indices
+        test_frac          : fraction of windows reserved for testing
+        gap                : unused here but kept for API consistency
+
+    Returns:
+        {col_idx: mean_absolute_pearson_correlation}
+    """
+    N = Y_series.shape[0]
+    n_train = int(N * (1.0 - test_frac))
+
+    Y_train = Y_series[:n_train]                         # [n_train, 144]
+    Y_c = Y_train - Y_train.mean(axis=1, keepdims=True)  # centre each row
+    Y_norm = np.sqrt((Y_c ** 2).sum(axis=1))             # [n_train]
+
+    scores: dict[int, float] = {}
+    for col in all_sensor_df_cols:
+        X_train = raw_windows_X[col][:n_train]                # [n_train, 144]
+        X_c     = X_train - X_train.mean(axis=1, keepdims=True)
+        X_norm  = np.sqrt((X_c ** 2).sum(axis=1))             # [n_train]
+
+        numer   = (X_c * Y_c).sum(axis=1)      # [n_train]
+        denom   = X_norm * Y_norm              # [n_train]
+
+        # Compute correlation only where both series have nonzero variance;
+        # use np.divide with out/where to avoid the spurious division-by-zero
+        # warning that np.where produces by evaluating both branches first.
+        corr    = np.zeros_like(numer)
+        valid   = denom > 1e-10
+        np.divide(numer, denom, out=corr, where=valid)         # [n_train]
+        scores[col] = float(np.mean(np.abs(corr)))
+    return scores
+
+
+def rf_fs_scorer(
+    raw_windows_X: dict[int, np.ndarray],
+    y_target: np.ndarray,
+    all_sensor_df_cols: list[int],
+    test_frac: float,
+    gap: int = 144,
+) -> dict[int, float]:
+    """Score all candidate sensors with RandomForestRegressor fit on train split only.
+
+    Constructs X_train identically to lasso_fs_scorer. After fitting, each
+    sensor's score is the sum of MDI feature importances for its 144 features.
+
+    Args:
+        raw_windows_X      : {col_idx: [N, 144]} raw context windows per sensor
+        y_target           : [N, 12] forecast targets
+        all_sensor_df_cols : ordered list of candidate df column indices
+        test_frac          : fraction of windows reserved for testing
+        gap                : context-overlap gap excluded between train and test
+
+    Returns:
+        {col_idx: aggregated_rf_importance_score}
+    """
+    from sklearn.ensemble import RandomForestRegressor
+
+    N = next(iter(raw_windows_X.values())).shape[0]
+    n_train = int(N * (1.0 - test_frac))
+
+    X_train = np.hstack([raw_windows_X[col][:n_train] for col in all_sensor_df_cols])
+    y_train = y_target[:n_train].mean(axis=1)   # [n_train] — mean over 12 horizons
+
+    model = RandomForestRegressor(
+        n_estimators=100, max_depth=5, n_jobs=-1, random_state=42
+    )
+    model.fit(X_train, y_train)
+
+    importances = model.feature_importances_   # [144 * n_sensors]
+    scores: dict[int, float] = {}
+    for i, col in enumerate(all_sensor_df_cols):
+        scores[col] = float(np.sum(importances[i * 144 : (i + 1) * 144]))
+    return scores
