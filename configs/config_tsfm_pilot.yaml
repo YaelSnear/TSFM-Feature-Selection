@@ -1,0 +1,28 @@
+experiment:
+  name: tsfm_pilot
+  pilot_mode: true
+  exploratory: true          # 80/20 train/test; no K/layer/pool choices from test results
+  n_per_role: 2              # 2 per role = 10 total; pilot uses 1 from A and 1 from B
+  random_k_repeats: 5        # 5 random_k repeats (stored per repeat)
+  max_candidates: 50         # structured_50 pool
+  candidate_pool_mode: structured_50
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144        # 12 hours at 5-min resolution
+  horizon: 12                # 1 hour ahead
+  stride: 12
+  max_windows: 9999          # cap on sliding windows per split
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [10]               # pilot: best layer from prior experiments
+
+scoring:
+  max_lag: 24                # 2 hours = 24 x 5-min patches
+  dtw_gamma: 1.0
+  active_methods: [Pearson, Lagged_CKA]   # pilot skips Soft_DTW/Mean_Pooling/Lasso/RF
+
+evaluation:
+  top_ks: [5, 10]
+  test_frac: 0.2

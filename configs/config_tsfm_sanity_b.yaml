@@ -1,0 +1,31 @@
+experiment:
+  name: tsfm_sanity_all206_runtime
+  debug_mode: false
+  pilot_mode: true            # 1 target only (first role_A_central)
+  n_per_role: 2
+  random_k_repeats: 1
+  max_candidates: null        # all 206 non-target sensors
+  max_scoring_windows: 500    # runtime check: report Mean_CKA/Lagged_CKA timing
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 9999           # all available windows; scoring/test capped separately
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [8]
+
+scoring:
+  max_lag: 24
+  active_methods:
+    - Mean_CKA
+    - Lagged_CKA
+    # Pearson/RandomForest/SparseLinear_L1 excluded: runtime check focuses on embedding methods
+
+evaluation:
+  top_ks: [5]
+  test_frac: 0.2
+  max_test_windows: 50        # only for all_features_206 feasibility test

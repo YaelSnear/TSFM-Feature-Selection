@@ -1,0 +1,37 @@
+experiment:
+  name: tsfm_sanity
+  debug_mode: true           # prints [DEBUG ONLY] banner; not for scientific conclusions
+  pilot_mode: true           # 1 target: first role_A_central only
+  exploratory: true
+  n_per_role: 2
+  random_k_repeats: 1
+  max_candidates: 10         # structured_10: top-10 nearest by adjacency weight
+  candidate_pool_mode: structured_10
+  max_scoring_windows: 100   # subsample train windows for extraction + scoring
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 9999
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [10]
+
+scoring:
+  max_lag: 24                # full lag value (benchmark vectorized lagged_cka)
+  dtw_gamma: 1.0
+  active_methods:
+    - Pearson
+    - Lasso
+    - RandomForest
+    - Mean_CKA
+    - Lagged_CKA
+    - Soft_DTW
+
+evaluation:
+  top_ks: [5]
+  test_frac: 0.2
+  max_test_windows: 50

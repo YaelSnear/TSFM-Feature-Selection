@@ -1,0 +1,43 @@
+experiment:
+  name: tsfm_full_structured50
+  debug_mode: false
+  pilot_mode: false
+  exploratory: true
+  n_per_role: 2
+  random_k_repeats: 3
+  max_candidates: 50
+  candidate_pool_mode: structured_50
+  max_scoring_windows: 1000
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 9999
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [6, 8, 10]
+
+scoring:
+  max_lag: 24
+  dtw_gamma: 1.0
+  active_methods:
+    - Pearson
+    - Lasso
+    - RandomForest
+    - Mean_CKA
+    - Lagged_CKA
+    # Soft_DTW excluded: benchmark showed ~120s per target × layer × 2 conditions → ~60 min
+    # for 10 targets × 3 layers. Exceeds 30-min threshold. Ask before re-enabling.
+
+evaluation:
+  top_ks: [5, 10, 20, 30]
+  test_frac: 0.2
+  max_test_windows: null
+
+downstream:
+  model: Chronos-2
+  frozen: true
+  cross_learning: false

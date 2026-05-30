@@ -1,0 +1,102 @@
+{
+  "role_A_central": [
+    {
+      "sensor_id": "717469",
+      "df_col": 154,
+      "adj_idx": 154,
+      "role": "role_A_central",
+      "metric_key": "weighted_degree",
+      "metric_value": 7.945798397064209,
+      "explanation": "Selected for role_A_central: weighted_degree=7.945798 (highest among unselected sensors)"
+    },
+    {
+      "sensor_id": "717456",
+      "df_col": 195,
+      "adj_idx": 195,
+      "role": "role_A_central",
+      "metric_key": "weighted_degree",
+      "metric_value": 7.943045139312744,
+      "explanation": "Selected for role_A_central: weighted_degree=7.943045 (highest among unselected sensors)"
+    }
+  ],
+  "role_B_peripheral": [
+    {
+      "sensor_id": "717804",
+      "df_col": 26,
+      "adj_idx": 26,
+      "role": "role_B_peripheral",
+      "metric_key": "weighted_degree",
+      "metric_value": 1.0,
+      "explanation": "Selected for role_B_peripheral: weighted_degree=1.000000 (lowest among unselected sensors)"
+    },
+    {
+      "sensor_id": "769867",
+      "df_col": 126,
+      "adj_idx": 126,
+      "role": "role_B_peripheral",
+      "metric_key": "weighted_degree",
+      "metric_value": 1.0,
+      "explanation": "Selected for role_B_peripheral: weighted_degree=1.000000 (lowest among unselected sensors)"
+    }
+  ],
+  "role_C_bridge": [
+    {
+      "sensor_id": "717571",
+      "df_col": 117,
+      "adj_idx": 117,
+      "role": "role_C_bridge",
+      "metric_key": "betweenness",
+      "metric_value": 0.17660430973241772,
+      "explanation": "Selected for role_C_bridge: betweenness=0.176604 (highest among unselected sensors)"
+    },
+    {
+      "sensor_id": "717493",
+      "df_col": 73,
+      "adj_idx": 73,
+      "role": "role_C_bridge",
+      "metric_key": "betweenness",
+      "metric_value": 0.17556239640066304,
+      "explanation": "Selected for role_C_bridge: betweenness=0.175562 (highest among unselected sensors)"
+    }
+  ],
+  "role_D_dense": [
+    {
+      "sensor_id": "773012",
+      "df_col": 29,
+      "adj_idx": 29,
+      "role": "role_D_dense",
+      "metric_key": "clustering",
+      "metric_value": 0.2755318746139041,
+      "explanation": "Selected for role_D_dense: clustering=0.275532 (highest among unselected sensors)"
+    },
+    {
+      "sensor_id": "718072",
+      "df_col": 106,
+      "adj_idx": 106,
+      "role": "role_D_dense",
+      "metric_key": "clustering",
+      "metric_value": 0.24340582898142019,
+      "explanation": "Selected for role_D_dense: clustering=0.243406 (highest among unselected sensors)"
+    }
+  ],
+  "role_E_high_variance": [
+    {
+      "sensor_id": "718076",
+      "df_col": 105,
+      "adj_idx": 105,
+      "role": "role_E_high_variance",
+      "metric_key": "variance_train",
+      "metric_value": 762.2254859435312,
+      "explanation": "Selected for role_E_high_variance: variance_train=762.225486 (highest among unselected sensors)"
+    },
+    {
+      "sensor_id": "717472",
+      "df_col": 127,
+      "adj_idx": 127,
+      "role": "role_E_high_variance",
+      "metric_key": "variance_train",
+      "metric_value": 673.9565045674691,
+      "explanation": "Selected for role_E_high_variance: variance_train=673.956505 (highest among unselected sensors)"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+experiment:
+  name: tsfm_bench_lcka
+  debug_mode: false
+  pilot_mode: true           # 1 target: first role_A_central only
+  exploratory: true
+  n_per_role: 2
+  random_k_repeats: 1
+  max_candidates: 50         # structured_50: benchmark with full candidate pool
+  candidate_pool_mode: structured_50
+  max_scoring_windows: 1000  # full scoring window budget (same as full experiment)
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 9999
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [10]               # benchmark 1 layer; extrapolate to 3 layers
+
+scoring:
+  max_lag: 24
+  dtw_gamma: 1.0
+  active_methods:
+    - Lagged_CKA
+    - Soft_DTW                # benchmark both; report separately
+
+evaluation:
+  top_ks: [5]
+  test_frac: 0.2
+  max_test_windows: 50

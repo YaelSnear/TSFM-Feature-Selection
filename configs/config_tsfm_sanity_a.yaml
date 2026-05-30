@@ -1,0 +1,33 @@
+experiment:
+  name: tsfm_sanity_all10_top5
+  debug_mode: true            # prints SANITY banner; not for scientific conclusions
+  pilot_mode: true            # 1 target: first role_A_central only
+  n_per_role: 2
+  random_k_repeats: 1
+  max_candidates: 10          # SANITY technical cap: feature universe = 10 non-target sensors
+  max_scoring_windows: 100    # subsample train windows for extraction + scoring
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 100            # explicit cap: do not use 9999
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [8]
+
+scoring:
+  max_lag: 6                  # capped to min(6, P-1); gives 13 lag steps
+  active_methods:
+    - Pearson
+    - SparseLinear_L1
+    - RandomForest
+    - Mean_CKA
+    - Lagged_CKA
+
+evaluation:
+  top_ks: [5]
+  test_frac: 0.2
+  max_test_windows: 50        # cap test windows for downstream forecasting

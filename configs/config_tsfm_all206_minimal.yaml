@@ -1,0 +1,32 @@
+experiment:
+  name: tsfm_all206_minimal
+  debug_mode: false
+  pilot_mode: false
+  n_per_role: 2               # 10 role-selected targets (2 per role)
+  random_k_repeats: 3
+  max_candidates: null        # all 206 non-target sensors
+  max_scoring_windows: 1000   # only run after SANITY Part B runtime approval
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 9999           # all available windows; scoring/test capped separately
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [8]                 # layer 8: pragmatic default; not optimized. Layer ablation [6,8,10] is a future step.
+
+scoring:
+  max_lag: 24
+  active_methods:
+    - Pearson
+    - SparseLinear_L1
+    - RandomForest
+    - Mean_CKA
+    - Lagged_CKA
+
+evaluation:
+  top_ks: [5, 10, 20]
+  test_frac: 0.2

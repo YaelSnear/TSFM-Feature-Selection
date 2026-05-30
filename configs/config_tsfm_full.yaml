@@ -1,0 +1,28 @@
+experiment:
+  name: tsfm_full
+  pilot_mode: false
+  exploratory: true          # 80/20 train/test; all ablations reported separately
+  n_per_role: 2              # 2 per role = 10 total target sensors
+  random_k_repeats: 10       # 10 random_k repeats (stored per repeat)
+  max_candidates: null       # null = all_206; set to 50 if pilot runtime was too slow
+  candidate_pool_mode: all_206   # update to structured_50 if needed based on pilot runtime
+
+dataset:
+  zip_path: data/raw/METR-LA.zip
+  context_length: 144
+  horizon: 12
+  stride: 12
+  max_windows: 9999
+
+extraction:
+  model_id: amazon/chronos-2
+  layers: [6, 8, 10]        # all three layers; reported as separate ablations
+
+scoring:
+  max_lag: 24
+  dtw_gamma: 1.0
+  active_methods: [Pearson, Lagged_CKA, Mean_Pooling, Soft_DTW, Lasso, RF]
+
+evaluation:
+  top_ks: [5, 10, 20, 30]
+  test_frac: 0.2
